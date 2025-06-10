@@ -185,7 +185,13 @@ class Message < ApplicationRecord
     # move this to a presenter
     return self[:content] if !input_csat? || inbox.web_widget?
 
-    I18n.t('conversations.survey.response', link: "#{ENV.fetch('FRONTEND_URL', nil)}/survey/responses/#{conversation.uuid}")
+    survey_link = "#{ENV.fetch('FRONTEND_URL', nil)}/survey/responses/#{conversation.uuid}"
+
+    if inbox.csat_config&.dig('message').present?
+      "#{inbox.csat_config['message']} #{survey_link}"
+    else
+      I18n.t('conversations.survey.response', link: survey_link)
+    end
   end
 
   def email_notifiable_message?
@@ -216,6 +222,11 @@ class Message < ApplicationRecord
       }
     )
     save!
+  end
+
+  def send_update_event
+    Rails.configuration.dispatcher.dispatch(MESSAGE_UPDATED, Time.zone.now, message: self, performed_by: Current.executed_by,
+                                                                            previous_changes: previous_changes)
   end
 
   private
@@ -307,8 +318,7 @@ class Message < ApplicationRecord
     # we want to skip the update event if the message is not updated
     return if previous_changes.blank?
 
-    Rails.configuration.dispatcher.dispatch(MESSAGE_UPDATED, Time.zone.now, message: self, performed_by: Current.executed_by,
-                                                                            previous_changes: previous_changes)
+    send_update_event
   end
 
   def send_reply
